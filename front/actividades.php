@@ -10,16 +10,27 @@ if (!isset($_SESSION['user_id'])) {
 $user_id = $_SESSION['user_id'];
 $es_admin = ($_SESSION['rol'] === 'admin');
 
+// Verificar que el usuario tiene una sala activa
+if (!isset($_SESSION['sala_id'])) {
+    header("Location: salas.php");
+    exit();
+}
+$sala_id = $_SESSION['sala_id'];
+
 // --- 1. PROCESAR VOTOS ---
 if (isset($_POST['votar_actividad'])) {
     $id_actividad = $_POST['id_actividad'];
-    $check = $pdo->prepare("SELECT * FROM votos_actividades WHERE id_usuario = ? AND id_actividad = ?");
-    $check->execute([$user_id, $id_actividad]);
-    
-    if ($check->fetch()) {
-        $pdo->prepare("DELETE FROM votos_actividades WHERE id_usuario = ? AND id_actividad = ?")->execute([$user_id, $id_actividad]);
-    } else {
-        $pdo->prepare("INSERT INTO votos_actividades (id_usuario, id_actividad) VALUES (?, ?)")->execute([$user_id, $id_actividad]);
+    // Verificar que la actividad pertenece a la sala actual
+    $check_sala = $pdo->prepare("SELECT id_actividad FROM actividades WHERE id_actividad = ? AND id_sala = ?");
+    $check_sala->execute([$id_actividad, $sala_id]);
+    if ($check_sala->fetch()) {
+        $check = $pdo->prepare("SELECT * FROM votos_actividades WHERE id_usuario = ? AND id_actividad = ?");
+        $check->execute([$user_id, $id_actividad]);
+        if ($check->fetch()) {
+            $pdo->prepare("DELETE FROM votos_actividades WHERE id_usuario = ? AND id_actividad = ?")->execute([$user_id, $id_actividad]);
+        } else {
+            $pdo->prepare("INSERT INTO votos_actividades (id_usuario, id_actividad) VALUES (?, ?)")->execute([$user_id, $id_actividad]);
+        }
     }
     header("Location: actividades.php");
     exit();
@@ -40,8 +51,8 @@ if (isset($_POST['accion']) && $_POST['accion'] === 'nueva_actividad') {
 
     if (!empty($nombre)) {
         try {
-            $stmt = $pdo->prepare("INSERT INTO actividades (nombre, categoria, precio, hora_inicio, hora_finalizacion, descripcion, url_web, url_imagen, id_creador) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$nombre, $categoria, $precio, $hora_inicio, $hora_finalizacion, $descripcion, $url_web, $url_img, $user_id]);
+            $stmt = $pdo->prepare("INSERT INTO actividades (nombre, categoria, precio, hora_inicio, hora_finalizacion, descripcion, url_web, url_imagen, id_creador, id_sala) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$nombre, $categoria, $precio, $hora_inicio, $hora_finalizacion, $descripcion, $url_web, $url_img, $user_id, $sala_id]);
             header("Location: actividades.php");
             exit();
         } catch (PDOException $e) {
@@ -52,21 +63,26 @@ if (isset($_POST['accion']) && $_POST['accion'] === 'nueva_actividad') {
 
 // --- 3. TRAER DATOS ---
 $emojis = ['aventura' => '🥾', 'agua' => '🏄‍♂️', 'juegos' => '🎲', 'comida' => '🍷', 'fiesta' => '🎉'];
-$actividades = $pdo->query("
+$stmt_act = $pdo->prepare("
     SELECT a.*, 
     (SELECT COUNT(*) FROM votos_actividades WHERE id_actividad = a.id_actividad) as total_votos,
-    (SELECT COUNT(*) FROM votos_actividades WHERE id_usuario = $user_id AND id_actividad = a.id_actividad) as ha_votado,
+    (SELECT COUNT(*) FROM votos_actividades WHERE id_usuario = ? AND id_actividad = a.id_actividad) as ha_votado,
     (SELECT GROUP_CONCAT(u.nombre SEPARATOR ', ') FROM votos_actividades va JOIN usuarios u ON va.id_usuario = u.id_usuario WHERE va.id_actividad = a.id_actividad) as votantes
     FROM actividades a
+    WHERE a.id_sala = ?
     ORDER BY total_votos DESC
-")->fetchAll();
+");
+$stmt_act->execute([$user_id, $sala_id]);
+$actividades = $stmt_act->fetchAll();
 
-$presupuesto_personal = $pdo->query("
+$stmt_pres = $pdo->prepare("
     SELECT SUM(a.precio) 
     FROM actividades a 
     JOIN votos_actividades v ON a.id_actividad = v.id_actividad 
-    WHERE v.id_usuario = $user_id
-")->fetchColumn() ?: 0;
+    WHERE v.id_usuario = ? AND a.id_sala = ?
+");
+$stmt_pres->execute([$user_id, $sala_id]);
+$presupuesto_personal = $stmt_pres->fetchColumn() ?: 0;
 ?>
 <!DOCTYPE html>
 <html lang="es">

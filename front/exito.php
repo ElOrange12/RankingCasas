@@ -4,46 +4,69 @@ if (!isset($_SESSION['user_id'])) {
     header("Location: index.php");
     exit();
 }
+if (!isset($_SESSION['sala_id'])) {
+    header("Location: salas.php");
+    exit();
+}
 
 $es_admin = ($_SESSION['rol'] === 'admin');
+$sala_id = $_SESSION['sala_id'];
+$sala_nombre = $_SESSION['sala_nombre'] ?? 'Mi Viaje';
 require_once 'inc/bd.php';
 
 // --- 1. GESTIÓN DE ASISTENTES EN LA BASE DE DATOS ---
 if (isset($_POST['accion'])) {
     if ($_POST['accion'] === 'add_asistente' && $es_admin && !empty($_POST['nombre'])) {
-        $stmt = $pdo->prepare("INSERT INTO asistentes (nombre) VALUES (?)");
-        $stmt->execute([trim($_POST['nombre'])]);
+        $stmt = $pdo->prepare("INSERT INTO asistentes (nombre, id_sala) VALUES (?, ?)");
+        $stmt->execute([trim($_POST['nombre']), $sala_id]);
     } elseif ($_POST['accion'] === 'delete_asistente' && $es_admin) {
-        $stmt = $pdo->prepare("DELETE FROM asistentes WHERE id_asistente = ?");
-        $stmt->execute([$_POST['id_asistente']]);
+        $stmt = $pdo->prepare("DELETE FROM asistentes WHERE id_asistente = ? AND id_sala = ?");
+        $stmt->execute([$_POST['id_asistente'], $sala_id]);
     }
     header("Location: exito.php");
     exit();
 }
 
 try {
-    $asistentes = $pdo->query("SELECT * FROM asistentes ORDER BY id_asistente ASC")->fetchAll();
+    $stmt_asist = $pdo->prepare("SELECT * FROM asistentes WHERE id_sala = ? ORDER BY id_asistente ASC");
+    $stmt_asist->execute([$sala_id]);
+    $asistentes = $stmt_asist->fetchAll();
     $num_asistentes = count($asistentes) > 0 ? count($asistentes) : 1;
 
-    $stmt_casa = $pdo->query("SELECT c.*, COUNT(v.id_casa) as votos FROM casas c LEFT JOIN votos_casas v ON c.id_casa = v.id_casa GROUP BY c.id_casa ORDER BY votos DESC LIMIT 1");
+    $stmt_casa = $pdo->prepare("SELECT c.*, COUNT(v.id_casa) as votos FROM casas c LEFT JOIN votos_casas v ON c.id_casa = v.id_casa WHERE c.id_sala = ? GROUP BY c.id_casa ORDER BY votos DESC LIMIT 1");
+    $stmt_casa->execute([$sala_id]);
     $casa_top = $stmt_casa->fetch();
     
     $precio_casa = $casa_top ? (float)$casa_top['precio'] : 0;
     $img_casa = ($casa_top && !empty($casa_top['url_imagen'])) ? $casa_top['url_imagen'] : 'https://images.unsplash.com/photo-1449158743715-0a90ebb6d2d8?auto=format&fit=crop&w=800&q=80';
     $nombre_casa = $casa_top ? $casa_top['nombre'] : '¿A dónde vamos?';
 
-    $precio_transporte = (float)($pdo->query("SELECT SUM(coste_total) FROM transporte")->fetchColumn() ?: 0);
+    $stmt_transp = $pdo->prepare("SELECT SUM(coste_total) FROM transporte WHERE id_sala = ?");
+    $stmt_transp->execute([$sala_id]);
+    $precio_transporte = (float)($stmt_transp->fetchColumn() ?: 0);
+    
     $precio_compra = (float)($pdo->query("SELECT SUM(precio_estimado) FROM lista_compra")->fetchColumn() ?: 0);
-    $precio_actividades = (float)($pdo->query("SELECT SUM(a.precio) FROM actividades a JOIN votos_actividades v ON a.id_actividad = v.id_actividad")->fetchColumn() ?: 0);
+    
+    $stmt_activ = $pdo->prepare("SELECT SUM(a.precio) FROM actividades a JOIN votos_actividades v ON a.id_actividad = v.id_actividad WHERE a.id_sala = ?");
+    $stmt_activ->execute([$sala_id]);
+    $precio_actividades = (float)($stmt_activ->fetchColumn() ?: 0);
 
     $total_final_bd = $precio_casa + $precio_transporte + $precio_compra + $precio_actividades;
     $precio_por_persona = $total_final_bd / $num_asistentes;
 
-    $fechas_top = $pdo->query("SELECT fecha, COUNT(id_usuario) as total_votos FROM votos_fechas GROUP BY fecha ORDER BY total_votos DESC, fecha ASC LIMIT 3")->fetchAll();
+    $stmt_fechas = $pdo->prepare("SELECT fecha, COUNT(id_usuario) as total_votos FROM votos_fechas WHERE id_sala = ? GROUP BY fecha ORDER BY total_votos DESC, fecha ASC LIMIT 3");
+    $stmt_fechas->execute([$sala_id]);
+    $fechas_top = $stmt_fechas->fetchAll();
 
     $lista_compra_pdf = $pdo->query("SELECT nombre, precio_estimado FROM lista_compra")->fetchAll(PDO::FETCH_ASSOC);
-    $actividades_pdf = $pdo->query("SELECT nombre, precio FROM actividades")->fetchAll(PDO::FETCH_ASSOC);
-    $transporte_pdf = $pdo->query("SELECT tipo, ruta, coste_total FROM transporte")->fetchAll(PDO::FETCH_ASSOC);
+    
+    $stmt_actpdf = $pdo->prepare("SELECT nombre, precio FROM actividades WHERE id_sala = ?");
+    $stmt_actpdf->execute([$sala_id]);
+    $actividades_pdf = $stmt_actpdf->fetchAll(PDO::FETCH_ASSOC);
+    
+    $stmt_tranpdf = $pdo->prepare("SELECT tipo, ruta, coste_total FROM transporte WHERE id_sala = ?");
+    $stmt_tranpdf->execute([$sala_id]);
+    $transporte_pdf = $stmt_tranpdf->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (PDOException $e) {
     $total_final_bd = 0; $precio_por_persona = 0;
@@ -243,8 +266,11 @@ try {
         <?php if ($es_admin): ?>
             <a href="admin.php" class="btn-admin">⚙️ Admin</a>
         <?php endif; ?>
-        <span>🌲 Plan Rural Amigos 🌲</span>
-        <a href="controladores/logout.php" class="btn-logout">Salir</a>
+        <span>🌲 <?= htmlspecialchars($sala_nombre) ?> 🌲</span>
+        <div style="display:flex; gap:10px; position:absolute; right:0; top:50%; transform:translateY(-50%);">
+            <a href="controladores/salir_sala.php" style="background:#6a11cb; color:white; padding:8px 15px; border-radius:10px; text-decoration:none; font-size:1rem; font-weight:bold; box-shadow:0 4px 0 #4a0b8c;">🚪 Salas</a>
+            <a href="controladores/logout.php" class="btn-logout" style="position:static; transform:none;">Salir</a>
+        </div>
     </h1>
 
     <div class="top-section">

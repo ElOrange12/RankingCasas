@@ -9,17 +9,24 @@ if (!isset($_SESSION['user_id'])) {
 
 $user_id = $_SESSION['user_id'];
 
+// Verificar sala activa
+if (!isset($_SESSION['sala_id'])) {
+    header("Location: salas.php");
+    exit();
+}
+$sala_id = $_SESSION['sala_id'];
+
 // --- 1. PROCESAR VOTOS ---
 if (isset($_POST['guardar_fechas'])) {
     $fechas_seleccionadas = $_POST['fechas_seleccionadas'] ?? '';
     
-    $pdo->prepare("DELETE FROM votos_fechas WHERE id_usuario = ?")->execute([$user_id]);
+    $pdo->prepare("DELETE FROM votos_fechas WHERE id_usuario = ? AND id_sala = ?")->execute([$user_id, $sala_id]);
     
     if (!empty($fechas_seleccionadas)) {
         $array_fechas = explode(',', $fechas_seleccionadas);
-        $stmt = $pdo->prepare("INSERT INTO votos_fechas (id_usuario, fecha) VALUES (?, ?)");
+        $stmt = $pdo->prepare("INSERT INTO votos_fechas (id_usuario, fecha, id_sala) VALUES (?, ?, ?)");
         foreach ($array_fechas as $f) {
-            $stmt->execute([$user_id, $f]);
+            $stmt->execute([$user_id, $f, $sala_id]);
         }
     }
     header("Location: fechas.php");
@@ -27,21 +34,26 @@ if (isset($_POST['guardar_fechas'])) {
 }
 
 // --- 2. TRAER DATOS ---
-$stmt_mis_votos = $pdo->prepare("SELECT fecha FROM votos_fechas WHERE id_usuario = ?");
-$stmt_mis_votos->execute([$user_id]);
+$stmt_mis_votos = $pdo->prepare("SELECT fecha FROM votos_fechas WHERE id_usuario = ? AND id_sala = ?");
+$stmt_mis_votos->execute([$user_id, $sala_id]);
 $mis_votos = $stmt_mis_votos->fetchAll(PDO::FETCH_COLUMN);
 
-$ranking_fechas = $pdo->query("
+$stmt_ranking = $pdo->prepare("
     SELECT fecha, 
            COUNT(vf.id_usuario) as total_votos, 
            GROUP_CONCAT(u.nombre SEPARATOR ', ') as votantes 
     FROM votos_fechas vf 
     JOIN usuarios u ON vf.id_usuario = u.id_usuario 
+    WHERE vf.id_sala = ?
     GROUP BY fecha 
     ORDER BY total_votos DESC, fecha ASC
-")->fetchAll(PDO::FETCH_ASSOC);
+");
+$stmt_ranking->execute([$sala_id]);
+$ranking_fechas = $stmt_ranking->fetchAll(PDO::FETCH_ASSOC);
 
-$total_amigos = $pdo->query("SELECT COUNT(*) FROM usuarios")->fetchColumn() ?: 1;
+$stmt_total = $pdo->prepare("SELECT COUNT(DISTINCT id_usuario) FROM usuarios_salas WHERE id_sala = ?");
+$stmt_total->execute([$sala_id]);
+$total_amigos = $stmt_total->fetchColumn() ?: 1;
 ?>
 
 <!DOCTYPE html>

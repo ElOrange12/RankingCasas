@@ -9,6 +9,13 @@ if (!isset($_SESSION['user_id'])) {
 
 $es_admin = ($_SESSION['rol'] === 'admin');
 
+// Verificar sala activa
+if (!isset($_SESSION['sala_id'])) {
+    header("Location: salas.php");
+    exit();
+}
+$sala_id = $_SESSION['sala_id'];
+
 // --- 1. PROCESAR NUEVO TRAYECTO ---
 if (isset($_POST['accion']) && $_POST['accion'] === 'nuevo_trayecto') {
     $tipo = $_POST['tipo'];
@@ -16,8 +23,8 @@ if (isset($_POST['accion']) && $_POST['accion'] === 'nuevo_trayecto') {
     $coste = floatval($_POST['coste_total'] ?? 0);
 
     if ($coste > 0) {
-        $stmt = $pdo->prepare("INSERT INTO transporte (tipo, ruta, coste_total) VALUES (?, ?, ?)");
-        $stmt->execute([$tipo, $ruta, $coste]);
+        $stmt = $pdo->prepare("INSERT INTO transporte (tipo, ruta, coste_total, id_sala) VALUES (?, ?, ?, ?)");
+        $stmt->execute([$tipo, $ruta, $coste, $sala_id]);
     }
     header("Location: transporte.php");
     exit();
@@ -25,15 +32,21 @@ if (isset($_POST['accion']) && $_POST['accion'] === 'nuevo_trayecto') {
 
 // --- 2. BORRAR TRAYECTO ---
 if (isset($_POST['accion']) && $_POST['accion'] === 'borrar_trayecto') {
-    $stmt = $pdo->prepare("DELETE FROM transporte WHERE id_trayecto = ?");
-    $stmt->execute([$_POST['id_trayecto']]);
+    // Solo borrar si el trayecto pertenece a esta sala
+    $stmt = $pdo->prepare("DELETE FROM transporte WHERE id_trayecto = ? AND id_sala = ?");
+    $stmt->execute([$_POST['id_trayecto'], $sala_id]);
     header("Location: transporte.php");
     exit();
 }
 
 // --- 3. TRAER LISTA DE TRAYECTOS ---
-$trayectos = $pdo->query("SELECT * FROM transporte ORDER BY id_trayecto DESC")->fetchAll();
-$gasto_total_transporte = $pdo->query("SELECT SUM(coste_total) FROM transporte")->fetchColumn() ?: 0;
+$stmt_tray = $pdo->prepare("SELECT * FROM transporte WHERE id_sala = ? ORDER BY id_trayecto DESC");
+$stmt_tray->execute([$sala_id]);
+$trayectos = $stmt_tray->fetchAll();
+
+$stmt_gasto = $pdo->prepare("SELECT SUM(coste_total) FROM transporte WHERE id_sala = ?");
+$stmt_gasto->execute([$sala_id]);
+$gasto_total_transporte = $stmt_gasto->fetchColumn() ?: 0;
 ?>
 <!DOCTYPE html>
 <html lang="es">

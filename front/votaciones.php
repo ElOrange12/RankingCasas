@@ -10,16 +10,27 @@ if (!isset($_SESSION['user_id'])) {
 $user_id = $_SESSION['user_id'];
 $es_admin = ($_SESSION['rol'] === 'admin');
 
+// Verificar sala activa
+if (!isset($_SESSION['sala_id'])) {
+    header("Location: salas.php");
+    exit();
+}
+$sala_id = $_SESSION['sala_id'];
+
 // 1. Procesar Votos
 if (isset($_POST['votar_casa'])) {
     $id_casa = $_POST['id_casa'];
-    $check = $pdo->prepare("SELECT * FROM votos_casas WHERE id_usuario = ? AND id_casa = ?");
-    $check->execute([$user_id, $id_casa]);
-    
-    if ($check->fetch()) {
-        $pdo->prepare("DELETE FROM votos_casas WHERE id_usuario = ? AND id_casa = ?")->execute([$user_id, $id_casa]);
-    } else {
-        $pdo->prepare("INSERT INTO votos_casas (id_usuario, id_casa) VALUES (?, ?)")->execute([$user_id, $id_casa]);
+    // Verificar que la casa pertenece a esta sala
+    $check_sala = $pdo->prepare("SELECT id_casa FROM casas WHERE id_casa = ? AND id_sala = ?");
+    $check_sala->execute([$id_casa, $sala_id]);
+    if ($check_sala->fetch()) {
+        $check = $pdo->prepare("SELECT * FROM votos_casas WHERE id_usuario = ? AND id_casa = ?");
+        $check->execute([$user_id, $id_casa]);
+        if ($check->fetch()) {
+            $pdo->prepare("DELETE FROM votos_casas WHERE id_usuario = ? AND id_casa = ?")->execute([$user_id, $id_casa]);
+        } else {
+            $pdo->prepare("INSERT INTO votos_casas (id_usuario, id_casa) VALUES (?, ?)")->execute([$user_id, $id_casa]);
+        }
     }
     header("Location: votaciones.php");
     exit();
@@ -37,8 +48,8 @@ if (isset($_POST['accion']) && $_POST['accion'] === 'nueva_casa') {
 
     if (!empty($nombre) && $precio > 0) {
         try {
-            $stmt = $pdo->prepare("INSERT INTO casas (nombre, precio, descripcion, url_web, url_imagen, id_creador) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$nombre, $precio, $descripcion, $url_web, $url_img, $user_id]);
+            $stmt = $pdo->prepare("INSERT INTO casas (nombre, precio, descripcion, url_web, url_imagen, id_creador, id_sala) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$nombre, $precio, $descripcion, $url_web, $url_img, $user_id, $sala_id]);
             header("Location: votaciones.php");
             exit();
         } catch (PDOException $e) {
@@ -48,14 +59,17 @@ if (isset($_POST['accion']) && $_POST['accion'] === 'nueva_casa') {
 }
 
 // 3. Obtener Lista de Casas
-$casas = $pdo->query("
+$stmt_casas = $pdo->prepare("
     SELECT c.*, 
     (SELECT COUNT(*) FROM votos_casas WHERE id_casa = c.id_casa) as total_votos,
-    (SELECT COUNT(*) FROM votos_casas WHERE id_usuario = $user_id AND id_casa = c.id_casa) as ha_votado,
+    (SELECT COUNT(*) FROM votos_casas WHERE id_usuario = ? AND id_casa = c.id_casa) as ha_votado,
     (SELECT GROUP_CONCAT(u.nombre SEPARATOR ', ') FROM votos_casas vc JOIN usuarios u ON vc.id_usuario = u.id_usuario WHERE vc.id_casa = c.id_casa) as votantes
     FROM casas c
+    WHERE c.id_sala = ?
     ORDER BY total_votos DESC
-")->fetchAll();
+");
+$stmt_casas->execute([$user_id, $sala_id]);
+$casas = $stmt_casas->fetchAll();
 ?>
 <!DOCTYPE html>
 <html lang="es">

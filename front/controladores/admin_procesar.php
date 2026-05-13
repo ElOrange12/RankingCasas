@@ -11,6 +11,7 @@ if (!isset($_SESSION['user_id']) || $_SESSION['rol'] !== 'admin') {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $accion = $_POST['accion'] ?? '';
     $id = $_POST['id'] ?? 0;
+    $sala_id = $_SESSION['sala_id'] ?? null;
 
     try {
         if ($accion === 'borrar_usuario' && $id != $_SESSION['user_id']) {
@@ -26,13 +27,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$id]);
         }
         // 🔥 EL NUEVO CÓDIGO DEL BOTÓN NUCLEAR 🔥
-        elseif ($accion === 'reset_plan') {
-            // Vaciamos todas las tablas del viaje. (Las tablas de votos se vacían solas por el CASCADE de tu BD)
-            $pdo->exec("DELETE FROM casas");
-            $pdo->exec("DELETE FROM actividades");
+        elseif ($accion === 'reset_plan' && $sala_id) {
+            // Vaciamos solo las tablas de la sala actual
+            $pdo->prepare("DELETE FROM casas WHERE id_sala = ?")->execute([$sala_id]);
+            $pdo->prepare("DELETE FROM actividades WHERE id_sala = ?")->execute([$sala_id]);
+            $pdo->prepare("DELETE FROM transporte WHERE id_sala = ?")->execute([$sala_id]);
+            $pdo->prepare("DELETE FROM votos_fechas WHERE id_sala = ?")->execute([$sala_id]);
             $pdo->exec("DELETE FROM lista_compra");
-            $pdo->exec("DELETE FROM transporte");
-            $pdo->exec("DELETE FROM votos_fechas");
             $pdo->exec("DELETE FROM asistentes");
             
             // Volvemos al feed principal directamente
