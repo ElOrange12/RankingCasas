@@ -26,18 +26,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare("DELETE FROM actividades WHERE id_actividad = ?");
             $stmt->execute([$id]);
         }
-        // 🔥 EL NUEVO CÓDIGO DEL BOTÓN NUCLEAR 🔥
+        // 🔥 BOTÓN NUCLEAR: BORRAR SALA COMPLETA 🔥
         elseif ($accion === 'reset_plan' && $sala_id) {
-            // Vaciamos solo las tablas de la sala actual
-            $pdo->prepare("DELETE FROM casas WHERE id_sala = ?")->execute([$sala_id]);
-            $pdo->prepare("DELETE FROM actividades WHERE id_sala = ?")->execute([$sala_id]);
-            $pdo->prepare("DELETE FROM transporte WHERE id_sala = ?")->execute([$sala_id]);
-            $pdo->prepare("DELETE FROM votos_fechas WHERE id_sala = ?")->execute([$sala_id]);
+            // Borrar lista_compra (no tiene id_sala todavía)
             $pdo->exec("DELETE FROM lista_compra");
-            $pdo->exec("DELETE FROM asistentes");
             
-            // Volvemos al feed principal directamente
-            header("Location: ../exito.php?msg=reset_ok");
+            // Borrar la sala — el CASCADE elimina automáticamente:
+            // casas, actividades, transporte, votos_fechas, asistentes, usuarios_salas
+            $pdo->prepare("DELETE FROM salas WHERE id_sala = ?")->execute([$sala_id]);
+            
+            // Limpiar la sesión de sala
+            unset($_SESSION['sala_id']);
+            unset($_SESSION['sala_nombre']);
+            
+            // Llevar al menú de salas
+            header("Location: ../salas.php");
             exit();
         }
 
